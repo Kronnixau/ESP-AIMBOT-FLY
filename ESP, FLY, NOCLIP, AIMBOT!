@@ -1,0 +1,529 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+local CurrentTarget = nil
+local espEnabled = true
+local aimbotEnabled = true
+
+-- FOV Circle Setup
+local DrawingNew = Drawing.new
+local FOVCircle = DrawingNew("Circle")
+FOVCircle.Visible = true
+FOVCircle.Thickness = 2
+FOVCircle.Radius = 25
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+
+-- Rainbow color function
+local function updateRainbow()
+    local time = tick() * 2
+    local r = math.sin(time) * 0.5 + 0.5
+    local g = math.sin(time + 2) * 0.5 + 0.5
+    local b = math.sin(time + 4) * 0.5 + 0.5
+    FOVCircle.Color = Color3.new(r, g, b)
+end
+-- Super aggressive targeting system
+local function getClosestPlayer()
+    local closestDistance = math.huge
+    local closestPlayer = nil
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local character = player.Character
+            if character and character:FindFirstChild("Head") and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
+                local head = character.Head
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                local distanceFromMouse = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                
+                if onScreen and distanceFromMouse <= FOVCircle.Radius then
+                    local actualDistance = (head.Position - Camera.CFrame.Position).Magnitude
+                    if actualDistance < closestDistance then
+                        closestDistance = actualDistance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Enhanced aimbot function
+local function aimbot()
+    if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
+        local targetPos = CurrentTarget.Character.Head.Position
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+    end
+end
+-- ESP Creation Function
+local function createLabels(character)
+    if not character then return end
+    if character:FindFirstChild("ESPHighlight") then return end
+    
+    task.wait()  -- Small wait to ensure parts are loaded
+    
+    local humanoid = character:WaitForChild("Humanoid", 1)
+    local head = character:WaitForChild("Head", 1)
+    local upperTorso = character:WaitForChild("UpperTorso", 1)
+    
+    if not humanoid or not head or not upperTorso then return end
+    
+    local player = Players:GetPlayerFromCharacter(character)
+
+    -- Health Label
+    local healthBillboard = Instance.new("BillboardGui")
+    healthBillboard.Name = "HealthLabel"
+    healthBillboard.Size = UDim2.new(0, 100, 0, 20)
+    healthBillboard.StudsOffset = Vector3.new(0, 0, 0)
+    healthBillboard.AlwaysOnTop = true
+    healthBillboard.MaxDistance = math.huge
+    healthBillboard.SizeOffset = Vector2.new(0,0)
+    healthBillboard.Adornee = upperTorso
+    
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Size = UDim2.new(1, 0, 1, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextSize = 16
+    healthLabel.Font = Enum.Font.GothamBold
+    healthLabel.TextStrokeTransparency = 0
+    healthLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    healthLabel.Parent = healthBillboard
+    -- Name and Distance Label
+    local nameBillboard = Instance.new("BillboardGui")
+    nameBillboard.Name = "NameLabel"
+    nameBillboard.Size = UDim2.new(0, 200, 0, 20)
+    nameBillboard.StudsOffset = Vector3.new(0, 1, 0)
+    nameBillboard.AlwaysOnTop = true
+    nameBillboard.MaxDistance = math.huge
+    nameBillboard.SizeOffset = Vector2.new(0,0)
+    nameBillboard.Adornee = head
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextSize = 16
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.Parent = nameBillboard
+    
+    local function updateHealth()
+        healthLabel.Text = tostring(math.floor(humanoid.Health))
+        healthLabel.TextColor3 = Color3.fromHSV(humanoid.Health/humanoid.MaxHealth * 0.3, 1, 1)
+    end
+    
+    local function updateDistance()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude
+            nameLabel.Text = string.format("%s [%d]", player.Name, math.floor(distance))
+        end
+    end
+    humanoid.HealthChanged:Connect(updateHealth)
+    RunService.Heartbeat:Connect(updateDistance)
+    
+    updateHealth()
+    updateDistance()
+    
+    healthBillboard.Parent = upperTorso
+    nameBillboard.Parent = head
+    
+    -- Create outline
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESPHighlight"
+    highlight.FillTransparency = 1
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+    
+    RunService.Heartbeat:Connect(function()
+        if character and character.Parent then
+            highlight.OutlineColor = Color3.fromHSV(tick() % 1, 1, 1)
+        end
+    end)
+    
+    healthBillboard.Enabled = espEnabled
+    nameBillboard.Enabled = espEnabled
+    highlight.Enabled = espEnabled
+end
+
+-- Create GUI with both ESP and Aimbot toggles
+local gui = Instance.new("ScreenGui")
+-- Aimbot Frame
+local aimbotFrame = Instance.new("Frame")
+local aimbotButton = Instance.new("TextButton")
+
+aimbotFrame.Size = UDim2.new(0, 120, 0, 40)
+aimbotFrame.Position = UDim2.new(0.85, 0, 0.02, 0)
+aimbotFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+aimbotButton.Size = UDim2.new(1, -10, 1, -10)
+aimbotButton.Position = UDim2.new(0, 5, 0, 5)
+aimbotButton.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+aimbotButton.Text = "AIMBOT: ON"
+aimbotButton.TextColor3 = Color3.new(1, 1, 1)
+aimbotButton.Font = Enum.Font.GothamBold
+aimbotButton.Parent = aimbotFrame
+
+local aimbotCorner = Instance.new("UICorner")
+aimbotCorner.CornerRadius = UDim.new(0.3, 0)
+aimbotCorner.Parent = aimbotFrame
+
+local aimbotButtonCorner = Instance.new("UICorner")
+aimbotButtonCorner.CornerRadius = UDim.new(0.3, 0)
+aimbotButtonCorner.Parent = aimbotButton
+
+aimbotFrame.Parent = gui
+-- ESP Frame
+local frame = Instance.new("Frame")
+local button = Instance.new("TextButton")
+
+frame.Size = UDim2.new(0, 120, 0, 40)
+frame.Position = UDim2.new(0.85, 0, 0.1, 0)
+frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+button.Size = UDim2.new(1, -10, 1, -10)
+button.Position = UDim2.new(0, 5, 0, 5)
+button.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+button.Text = "ESP: ON"
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Font = Enum.Font.GothamBold
+button.Parent = frame
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0.3, 0)
+corner.Parent = frame
+
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0.3, 0)
+buttonCorner.Parent = button
+
+frame.Parent = gui
+gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Noclip Frame
+local noclipFrame = Instance.new("Frame")
+local noclipButton = Instance.new("TextButton")
+local noclipEnabled = false
+
+noclipFrame.Size = UDim2.new(0, 120, 0, 40)
+noclipFrame.Position = UDim2.new(0.85, 0, 0.26, 0)
+noclipFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+noclipButton.Size = UDim2.new(1, -10, 1, -10)
+noclipButton.Position = UDim2.new(0, 5, 0, 5)
+noclipButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+noclipButton.Text = "NOCLIP: OFF"
+noclipButton.TextColor3 = Color3.new(1, 1, 1)
+noclipButton.Font = Enum.Font.GothamBold
+noclipButton.Parent = noclipFrame
+
+local noclipCorner = Instance.new("UICorner")
+noclipCorner.CornerRadius = UDim.new(0.3, 0)
+noclipCorner.Parent = noclipFrame
+
+local noclipButtonCorner = Instance.new("UICorner")
+noclipButtonCorner.CornerRadius = UDim.new(0.3, 0)
+noclipButtonCorner.Parent = noclipButton
+
+noclipFrame.Parent = gui
+
+-- Noclip functionality
+local function onNoclip(_, part)
+    if noclipEnabled and part.Parent == LocalPlayer.Character then
+        return false
+    end
+    return true
+end
+
+noclipButton.MouseButton1Click:Connect(function()
+    noclipEnabled = not noclipEnabled
+    noclipButton.Text = "NOCLIP: " .. (noclipEnabled and "ON" or "OFF")
+    noclipButton.BackgroundColor3 = noclipEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
+end)
+
+game:GetService("RunService").Stepped:Connect(function()
+    if LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not noclipEnabled
+            end
+        end
+    end
+end)
+
+
+-- Fly Frame
+local flyFrame = Instance.new("Frame")
+local flyButton = Instance.new("TextButton")
+local flyEnabled = false
+
+flyFrame.Size = UDim2.new(0, 120, 0, 40)
+flyFrame.Position = UDim2.new(0.85, 0, 0.18, 0)
+flyFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+flyButton.Size = UDim2.new(1, -10, 1, -10)
+flyButton.Position = UDim2.new(0, 5, 0, 5)
+flyButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+flyButton.Text = "FLY: OFF"
+flyButton.TextColor3 = Color3.new(1, 1, 1)
+flyButton.Font = Enum.Font.GothamBold
+flyButton.Parent = flyFrame
+
+local flyCorner = Instance.new("UICorner")
+flyCorner.CornerRadius = UDim.new(0.3, 0)
+flyCorner.Parent = flyFrame
+
+local flyButtonCorner = Instance.new("UICorner")
+flyButtonCorner.CornerRadius = UDim.new(0.3, 0)
+flyButtonCorner.Parent = flyButton
+
+flyFrame.Parent = gui
+
+-- Fly functionality
+local function activateFly()
+    local character = LocalPlayer.Character
+    local humanoid = character:WaitForChild("Humanoid")
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVelocity.Parent = hrp
+    
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.CFrame = hrp.CFrame
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.Parent = hrp
+    
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+    
+    return bodyVelocity, bodyGyro
+end
+
+local currentBodyVelocity, currentBodyGyro
+
+flyButton.MouseButton1Click:Connect(function()
+    flyEnabled = not flyEnabled
+    flyButton.Text = "FLY: " .. (flyEnabled and "ON" or "OFF")
+    flyButton.BackgroundColor3 = flyEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
+    
+    if flyEnabled then
+        currentBodyVelocity, currentBodyGyro = activateFly()
+    else
+        if currentBodyVelocity then currentBodyVelocity:Destroy() end
+        if currentBodyGyro then currentBodyGyro:Destroy() end
+        
+        local character = LocalPlayer.Character
+        local humanoid = character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+            humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+            task.wait()
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end)
+
+-- FOV Slider
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(0, 120, 0, 20)
+sliderFrame.Position = UDim2.new(0.85, 0, 0.06, 0)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+sliderFrame.Parent = gui
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(0.3, 0)
+sliderCorner.Parent = sliderFrame
+
+local sliderBar = Instance.new("TextButton")
+sliderBar.Size = UDim2.new(1, -10, 0.3, 0)
+sliderBar.Position = UDim2.new(0, 5, 0.5, 0)
+sliderBar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+sliderBar.Text = ""
+sliderBar.AutoButtonColor = false
+sliderBar.Parent = sliderFrame
+
+local sliderBarCorner = Instance.new("UICorner")
+sliderBarCorner.CornerRadius = UDim.new(1, 0)
+sliderBarCorner.Parent = sliderBar
+local sliderBall = Instance.new("Frame")
+sliderBall.Size = UDim2.new(0, 16, 0, 16)
+sliderBall.Position = UDim2.new(0.5, -8, 0.5, -8)
+sliderBall.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+sliderBall.Parent = sliderBar
+
+local sliderBallCorner = Instance.new("UICorner")
+sliderBallCorner.CornerRadius = UDim.new(1, 0)
+sliderBallCorner.Parent = sliderBall
+
+local valueLabel = Instance.new("TextLabel")
+valueLabel.Size = UDim2.new(1, 0, 0.5, 0)
+valueLabel.Position = UDim2.new(0, 0, 0, 0)
+valueLabel.BackgroundTransparency = 1
+valueLabel.Text = "FOV: 25"
+valueLabel.TextColor3 = Color3.new(1, 1, 1)
+valueLabel.Font = Enum.Font.GothamBold
+valueLabel.TextSize = 14
+valueLabel.Parent = sliderFrame
+
+-- Slider functionality
+local dragging = false
+local minFOV = 10
+local maxFOV = 200
+-- Toggle and Slider Functionality
+sliderBar.MouseButton1Down:Connect(function()
+    dragging = true
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local mousePos = UserInputService:GetMouseLocation()
+        local sliderPos = sliderBar.AbsolutePosition
+        local sliderSize = sliderBar.AbsoluteSize
+        
+        local relativeX = math.clamp((mousePos.X - sliderPos.X) / sliderSize.X, 0, 1)
+        sliderBall.Position = UDim2.new(relativeX, -8, 0.5, -8)
+        
+        local newFOV = math.floor(minFOV + (maxFOV - minFOV) * relativeX)
+        FOVCircle.Radius = newFOV
+        valueLabel.Text = "FOV: " .. tostring(newFOV)
+    end
+end)
+
+aimbotButton.MouseButton1Click:Connect(function()
+    aimbotEnabled = not aimbotEnabled
+    FOVCircle.Visible = aimbotEnabled
+    aimbotButton.Text = "AIMBOT: " .. (aimbotEnabled and "ON" or "OFF")
+    aimbotButton.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
+end)
+button.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    button.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
+    button.BackgroundColor3 = espEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if not espEnabled then
+                -- Remove all ESP elements when disabled
+                local highlight = player.Character:FindFirstChild("ESPHighlight")
+                local upperTorso = player.Character:FindFirstChild("UpperTorso")
+                local head = player.Character:FindFirstChild("Head")
+                
+                if highlight then highlight:Destroy() end
+                if upperTorso and upperTorso:FindFirstChild("HealthLabel") then
+                    upperTorso.HealthLabel:Destroy()
+                end
+                if head and head:FindFirstChild("NameLabel") then
+                    head.NameLabel:Destroy()
+                end
+            else
+                -- Create fresh ESP when enabled
+                createLabels(player.Character)
+            end
+        end
+    end
+end)
+
+-- Main loop combining both systems
+RunService.RenderStepped:Connect(function()
+    -- FOV Circle and Aimbot Updates
+    local mousePos = UserInputService:GetMouseLocation()
+    local viewportSize = Camera.ViewportSize
+    
+    if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then
+        FOVCircle.Position = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+    else
+        FOVCircle.Position = mousePos
+    end
+    
+    updateRainbow()
+    
+    if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) and aimbotEnabled then
+        CurrentTarget = CurrentTarget or getClosestPlayer()
+        if CurrentTarget then
+            aimbot()
+        end
+    else
+        CurrentTarget = nil
+    end
+
+if flyEnabled and currentBodyVelocity and currentBodyGyro then
+    local character = LocalPlayer.Character
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+		local moveDirection = Vector3.new(
+ 		   UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or (UserInputService:IsKeyDown(Enum.KeyCode.A) and -1 or 0),
+    		   UserInputService:IsKeyDown(Enum.KeyCode.Space) and 1 or (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) and -1 or 0),
+    		   UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or (UserInputService:IsKeyDown(Enum.KeyCode.S) and -1 or 0)
+		)
+
+
+            
+            local lookVector = Camera.CFrame.LookVector
+            local rightVector = Camera.CFrame.RightVector
+            
+            local flyVector = (rightVector * moveDirection.X) + (Vector3.new(0, 1, 0) * moveDirection.Y) + (lookVector * moveDirection.Z)
+            currentBodyVelocity.Velocity = flyVector * 50
+            currentBodyGyro.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + lookVector)
+        end
+    end
+end
+    
+       -- ESP Updates
+    if espEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                coroutine.wrap(function()
+                    repeat
+                        createLabels(player.Character)
+                        task.wait()
+                    until player.Character:FindFirstChild("ESPHighlight")
+                end)()
+            end
+        end
+    end
+end)
+
+-- Aggressive player handling
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function(char)
+            if espEnabled then
+                coroutine.wrap(function()
+                    repeat
+                        createLabels(char)
+                        task.wait()
+                    until char:FindFirstChild("ESPHighlight")
+                end)()
+            end
+        end)
+        
+        if player.Character then
+            coroutine.wrap(function()
+                repeat
+                    createLabels(player.Character)
+                    task.wait()
+                until player.Character:FindFirstChild("ESPHighlight")
+            end)()
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    CurrentTarget = nil
+end)
